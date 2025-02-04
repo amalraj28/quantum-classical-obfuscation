@@ -3,6 +3,7 @@ from qiskit_aer import AerSimulator
 import matplotlib.pyplot as plt
 from stack import Stack
 
+
 def create_circuit(n: int):
     qc = QuantumCircuit(n)
 
@@ -105,6 +106,55 @@ def parse_string(string: str):
     return gate, qubits
 
 
+def correct_measurement(
+    stack: Stack, incorrect_string_list: list[int]
+) -> list[int | None]:
+    if stack.empty():
+        return []
+
+    correct_string_list = [int(x) for x in incorrect_string_list]
+
+    while not stack.empty():
+        quantum_gate, pos = stack.top()
+        stack.pop()
+
+        if quantum_gate == "CX":
+            ctrl, target = pos
+            correct_string_list[target] = (
+                incorrect_string_list[target] ^ incorrect_string_list[ctrl]
+            )
+
+        elif quantum_gate == "CCX":
+            c1, c2, t = pos
+            correct_string_list[t] = (
+                incorrect_string_list[c1] & incorrect_string_list[c2]
+            ) ^ incorrect_string_list[t]
+
+        elif quantum_gate == "SWAP":
+            bit1, bit2 = pos
+            correct_string_list[bit2], correct_string_list[bit1] = (
+                incorrect_string_list[bit1],
+                incorrect_string_list[bit2],
+            )
+
+        elif quantum_gate == "CSWAP":
+            ctrl, bit1, bit2 = pos
+            if incorrect_string_list[ctrl] == 1:
+                correct_string[bit2], correct_string[bit1] = (
+                    incorrect_string_list[bit1],
+                    incorrect_string_list[bit2],
+                )
+
+        else:
+            raise Exception("Unknown Error!!")
+    
+    return correct_string_list
+
+
+def list_to_string(lst: list):
+    string_list = [str(x) for x in lst]
+    return "".join(string_list)
+
 n = int(input("Enter the number of qubits: "))  # Handle edge cases
 qc = create_circuit(n)
 valid_gates = ["CX", "CCX", "SWAP", "CSWAP"]
@@ -138,5 +188,11 @@ qc.measure_all()
 
 transpiled, results = compile_and_run(qc)
 
-measurements = results.keys()
+incorrect_string_list = list(results.keys())[0]  # Assuming only a single output
+incorrect_bits_list = [int(x) for x in incorrect_string_list]
+print(f"Incorrect string = {incorrect_bits_list}")
 
+correct_bits_list = correct_measurement(stack, incorrect_bits_list)
+
+correct_string = list_to_string(correct_bits_list)
+print(f"Correct string = {correct_string}")
