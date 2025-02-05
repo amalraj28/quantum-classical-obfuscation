@@ -1,2 +1,5 @@
 QiskitError(f'No counts for experiment "{repr(key)}"')
   --> Check if measurement is added at the end of the circuit
+
+qiskit.circuit.exceptions.CircuitError: 'duplicate qubit arguments'
+  --> Check the input arguments
