@@ -3,25 +3,11 @@ from qiskit_aer import AerSimulator
 import matplotlib.pyplot as plt
 from constants import *
 from dequeue import Deque
-
-
-class Input:
-    @staticmethod
-    def integer(query: str) -> int:
-        while True:
-            try:
-                n = int(input(query))
-            except ValueError:
-                print("Invalid input! Try again")
-            else:
-                break
-
-        return n
-
+from helper import read_qasm2, read_qasm3, write_qasm2, write_qasm3
 
 class QCircuit:
-    def __init__(self, *args):
-        self.qc = QuantumCircuit(*args)
+    def __init__(self, *args, from_qasm=True):
+        self.qc = args[0] if from_qasm else QuantumCircuit(*args)
         self.num_qubits = self.qc.num_qubits
         self.gate_mappings = {
             "X": self.qc.x,
@@ -40,7 +26,17 @@ class QCircuit:
         }
 
         self.__deque = Deque()
-
+        
+    @classmethod
+    def from_qasm2(cls, file_name: str):
+        qc = read_qasm2(file_name)
+        return cls(qc)
+    
+    @classmethod
+    def from_qasm3(cls, file_name: str):
+        qc = read_qasm3(file_name)
+        return cls(qc)
+    
     def __parse_string(self, string: str) -> tuple[str, list[int]]:
         if len(string) == 0:
             raise ValueError("Nothing to parse - Query is empty!")
@@ -51,14 +47,20 @@ class QCircuit:
 
         return gate, qubits
 
-    def create_circuit_from_file(self, file_name: str):
-        with open(file_name, "r") as file:
-            for line in file:
-                query = line.strip()
-                if not query:
-                    continue
-                gate, qubits = self.__parse_string(query)
-                self.gate_mappings[gate](*qubits)
+    def to_qasm2(self, file_name: str):
+        write_qasm2(self.qc, file_name)
+    
+    def to_qasm3(self, file_name: str):
+        write_qasm3(self.qc, file_name)
+    
+    # def create_circuit_from_file(self, file_name: str):
+    #     with open(file_name, "r") as file:
+    #         for line in file:
+    #             query = line.strip()
+    #             if not query:
+    #                 continue
+    #             gate, qubits = self.__parse_string(query)
+    #             self.gate_mappings[gate](*qubits)
 
     def __is_valid_query(
         self, gate: str, qubits: list[int], valid_gates: dict[str, int]
@@ -126,8 +128,8 @@ class QCircuit:
 
         return "".join([str(x) for x in bits])
 
-    def measure(self):
-        self.qc.measure_all()
+    def measure(self, add_bits: bool = False):
+        self.qc.measure_all(add_bits=add_bits)
 
     def draw(self, output="mpl", **kwargs):
         if output == 'text':
@@ -143,13 +145,17 @@ class QCircuit:
         return transpiled, result.get_counts()
 
 if __name__ == '__main__':
-    n = Input.integer('Enter the number of qubits: ')
-    qc = QCircuit(n)
-    qc.create_circuit_from_file(CIRCUIT_FILE)
-    qc.draw(output='text')
-    qc.encrypt(CLASSICAL_FILE)
-    qc.measure()
+    # n = Input.integer('Enter the number of qubits: ')
+    # qc = QCircuit(n, from_qasm=False)
+    qc = QCircuit.from_qasm2('output.qasm')
+    # qc = QCircuit.from_qasm3('output3.qasm')
+    # qc.create_circuit_from_file(CIRCUIT_FILE)
     qc.draw()
+    qc.encrypt(CLASSICAL_FILE)
+    qc.draw()
+    qc.measure()
+    
+    # qc.to_qasm3('output3.qasm')
     transpiled, result = qc.compile_and_run()
     print(result)
 
