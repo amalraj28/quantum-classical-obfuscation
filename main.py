@@ -1,14 +1,15 @@
+from itertools import chain
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
 import matplotlib.pyplot as plt
-from constants import *
 from dequeue import Deque
-from helper import read_qasm2, read_qasm3, write_qasm2, write_qasm3
+from helper import *
+import random
+
 
 class QCircuit:
     def __init__(self, *args, from_qasm=True):
         self.qc = args[0] if from_qasm else QuantumCircuit(*args)
-        self.num_qubits = self.qc.num_qubits
         self.gate_mappings = {
             "X": self.qc.x,
             "Y": self.qc.y,
@@ -25,18 +26,27 @@ class QCircuit:
             "CCX": self.qc.ccx,
         }
 
-        self.__deque = Deque()
-        
+        self.gate_index = {
+            0: "I",
+            1: "X",
+            2: "CX",
+            3: "SWAP",
+            4: "CCX",
+            5: "CSWAP",
+        }
+
+        self.qubit_count = {"I": 1, "X": 1, "CX": 2, "SWAP": 2, "CCX": 3, "CSWAP": 3}
+
     @classmethod
     def from_qasm2(cls, file_name: str):
         qc = read_qasm2(file_name)
         return cls(qc)
-    
+
     @classmethod
     def from_qasm3(cls, file_name: str):
         qc = read_qasm3(file_name)
         return cls(qc)
-    
+
     def __parse_string(self, string: str) -> tuple[str, list[int]]:
         if len(string) == 0:
             raise ValueError("Nothing to parse - Query is empty!")
@@ -49,90 +59,102 @@ class QCircuit:
 
     def to_qasm2(self, file_name: str):
         write_qasm2(self.qc, file_name)
-    
+
     def to_qasm3(self, file_name: str):
         write_qasm3(self.qc, file_name)
-    
-    # def create_circuit_from_file(self, file_name: str):
-    #     with open(file_name, "r") as file:
-    #         for line in file:
-    #             query = line.strip()
-    #             if not query:
-    #                 continue
-    #             gate, qubits = self.__parse_string(query)
-    #             self.gate_mappings[gate](*qubits)
 
     def __is_valid_query(
         self, gate: str, qubits: list[int], valid_gates: dict[str, int]
     ):
         return gate.upper() in valid_gates and len(qubits) == valid_gates[gate]
 
-    def encrypt(self, file_name: str):
-        with open(file_name, "r") as file:
-            for line in file:
-                query = line.strip()
-                if not query:
-                    break
-                gate, qubits = self.__parse_string(query)
-                if self.__is_valid_query(gate, qubits, CLASSICAL_GATES):
-                    self.gate_mappings[gate](*qubits)
-                    bit_pos = list(map(lambda x: self.num_qubits - x - 1, qubits))
-                    self.__deque.push_back((gate, bit_pos))
+    def encrypt(self, key_size: int) -> str:
+        rem = key_size
+        key: list[list[int]] = []
+        n = self.qc.num_qubits
 
-    def decrypt(self, incorrect_measure: str) -> str:
-        deque = self.__deque
+        while rem > 0:
+            idx = random.randint(0, 5)
+            gate = self.gate_index[idx]
+            contr = self.qubit_count[gate] + 1
+            if rem - contr == 0 or rem - contr > 1:
+                encryptor: list[int] = []
+                encryptor.append(idx)
+                qubits = random.sample(range(n), contr - 1)
+                self.gate_mappings[gate](*qubits)
+                encryptor.extend(qubits)
+                key.append(encryptor)
+                rem -= contr
 
-        if deque.empty():
-            raise Exception(
-                "Encryption not done! Encrypt your circuit first to apply decryption"
-            )
+        flattened_list = list(map(lambda x: str(x), chain.from_iterable(key)))
+        return "".join(flattened_list)
 
-        bits = [int(x) for x in incorrect_measure]
+    def decrypt(self, key: str, incorrect_measure: str):
+        deque = Deque()
+        n = self.qc.num_qubits
+        measurement = [int(x) for x in incorrect_measure]
 
-        n = deque.size()
+        if len(measurement) == 0:
+            raise ValueError("Not a valid measurement result!")
 
-        for _ in range(n):
-            quantum_gate, pos = deque.back()
+        i = 0
+
+        while i < len(key):
+            gate_idx = int(key[i])
+            if gate_idx not in self.gate_index:
+                raise ValueError(f"Invalid key {key}. Value at index {i+1} is invalid!")
+
+            gate = self.gate_index[gate_idx]
+            num_qubits = self.qubit_count[gate]
+            qubits_as_str = key[i + 1 : i + 1 + num_qubits]
+            deque.push_back((gate, qubits_as_str))
+            i += 1 + num_qubits
+
+        while not deque.empty():
+            quantum_gate, qubits_string = deque.back()
             deque.pop_back()
-            deque.push_front((quantum_gate, pos))
+            bit_pos = list(map(lambda x: n - int(x) - 1, qubits_string))
 
             if quantum_gate == "CX":
-                ctrl, target = pos
-                bits[target] = bits[target] ^ bits[ctrl]
+                ctrl, target = bit_pos
+                measurement[target] = measurement[target] ^ measurement[ctrl]
 
             elif quantum_gate == "CCX":
-                c1, c2, t = pos
-                bits[t] = (bits[c1] & bits[c2]) ^ bits[t]
+                c1, c2, t = bit_pos
+                measurement[t] = (measurement[c1] & measurement[c2]) ^ measurement[t]
 
             elif quantum_gate == "SWAP":
-                bit1, bit2 = pos
-                bits[bit2], bits[bit1] = (
-                    bits[bit1],
-                    bits[bit2],
+                bit1, bit2 = bit_pos
+                measurement[bit2], measurement[bit1] = (
+                    measurement[bit1],
+                    measurement[bit2],
                 )
 
             elif quantum_gate == "CSWAP":
-                ctrl, bit1, bit2 = pos
-                if bits[ctrl] == 1:
-                    bits[bit2], bits[bit1] = (
-                        bits[bit1],
-                        bits[bit2],
+                ctrl, bit1, bit2 = bit_pos
+                if measurement[ctrl] == 1:
+                    measurement[bit2], measurement[bit1] = (
+                        measurement[bit1],
+                        measurement[bit2],
                     )
 
             elif quantum_gate == "X":
-                bit = pos[0]
-                bits[bit] ^= 1
+                bit = bit_pos[0]
+                measurement[bit] ^= 1
+
+            elif quantum_gate == "I":
+                continue
 
             else:
-                raise Exception("Unknown Error!!")
+                raise Exception("Unknown error while decoding!")
 
-        return "".join([str(x) for x in bits])
+        return ''.join(list(map(str, measurement)))
 
     def measure(self, add_bits: bool = False):
         self.qc.measure_all(add_bits=add_bits)
 
     def draw(self, output="mpl", **kwargs):
-        if output == 'text':
+        if output == "text":
             print(self.qc.draw(output=output, **kwargs))
         else:
             self.qc.draw(output=output, **kwargs)
@@ -144,21 +166,17 @@ class QCircuit:
         result = simulator.run(transpiled, shots=shots).result()
         return transpiled, result.get_counts()
 
-if __name__ == '__main__':
-    # n = Input.integer('Enter the number of qubits: ')
-    # qc = QCircuit(n, from_qasm=False)
-    qc = QCircuit.from_qasm2('output.qasm')
-    # qc = QCircuit.from_qasm3('output3.qasm')
-    # qc.create_circuit_from_file(CIRCUIT_FILE)
-    qc.draw()
-    qc.encrypt(CLASSICAL_FILE)
-    qc.draw()
+
+if __name__ == "__main__":
+    qc = QCircuit.from_qasm2("output.qasm")
+    qc.draw("text")
+    key = qc.encrypt(20)
+    qc.draw("text")
     qc.measure()
-    
-    # qc.to_qasm3('output3.qasm')
+
     transpiled, result = qc.compile_and_run()
     print(result)
 
     for incorrect_string in result.keys():
-        corrected_string = qc.decrypt(incorrect_string)
+        corrected_string = qc.decrypt(key, incorrect_string)
         print(f"{incorrect_string} --> {corrected_string}")
