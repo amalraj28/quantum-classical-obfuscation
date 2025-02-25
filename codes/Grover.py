@@ -47,9 +47,14 @@ class Grover:
             ]
             # Add a multi-controlled Z-gate with pre- and post-applied X-gates (open-controls)
             # where the target bit-string has a '0' entry
-            qc.x(zero_inds)
-            qc.compose(MCMT(ZGate(), num_qubits - 1, 1), inplace=True)
-            qc.x(zero_inds)
+            if len(zero_inds):
+                qc.x(zero_inds)
+            
+            qc.compose(MCMT(ZGate(), num_qubits - 1, 1).decompose(), inplace=True)
+            
+            if len(zero_inds):
+                qc.x(zero_inds)
+
         return qc
 
     def create_grover_ciruit(self, solutions: list[str]) -> QuantumCircuit:
@@ -66,6 +71,7 @@ class Grover:
             QuantumCircuit: Final quantum circuit after appending oracle and Grover's operator.
             Measurement gates are not added to the circuit.
         """
+        print(f"Solutions = {solutions}")
         if len(solutions) == 0:
             raise Exception(
                 "Current implementation is only for the case of known solutions!"
@@ -85,6 +91,5 @@ class Grover:
             (math.pi / (4 * math.asin(math.sqrt(len(solutions) / 2**num_qubits))))
         )
 
-        qc.compose(grover_op.power(optimal_iter), inplace=True)
-
+        qc.compose(grover_op.power(optimal_iter).decompose(), inplace=True)
         return qc

@@ -1,10 +1,13 @@
 from itertools import chain
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
+from qiskit.visualization import plot_histogram
 import matplotlib.pyplot as plt
 from dequeue import Deque
 from helper import *
 import random
+from codes.Grover import Grover
+import os
 
 
 class QCircuit:
@@ -27,7 +30,7 @@ class QCircuit:
         }
 
         self.gate_index = {
-            0: "I",
+            0: "X",
             1: "X",
             2: "CX",
             3: "SWAP",
@@ -35,7 +38,7 @@ class QCircuit:
             5: "CSWAP",
         }
 
-        self.qubit_count = {"I": 1, "X": 1, "CX": 2, "SWAP": 2, "CCX": 3, "CSWAP": 3}
+        self.qubit_count = {"X": 1, "CX": 2, "SWAP": 2, "CCX": 3, "CSWAP": 3}
 
     @classmethod
     def from_qasm2(cls, file_name: str):
@@ -47,52 +50,40 @@ class QCircuit:
         qc = read_qasm3(file_name)
         return cls(qc)
 
-    def __parse_string(self, string: str) -> tuple[str, list[int]]:
-        if len(string) == 0:
-            raise ValueError("Nothing to parse - Query is empty!")
-
-        gate, *qubits = string.split()
-        gate = gate.upper()
-        qubits = list(map(lambda x: int(x), qubits))
-
-        return gate, qubits
-
     def to_qasm2(self, file_name: str):
         write_qasm2(self.qc, file_name)
 
     def to_qasm3(self, file_name: str):
         write_qasm3(self.qc, file_name)
 
-    def __is_valid_query(
-        self, gate: str, qubits: list[int], valid_gates: dict[str, int]
-    ):
-        return gate.upper() in valid_gates and len(qubits) == valid_gates[gate]
-
     def encrypt(self, key_size: int) -> str:
         rem = key_size
         key: list[list[int]] = []
-        n = self.qc.num_qubits
 
         while rem > 0:
             idx = random.randint(0, 5)
             gate = self.gate_index[idx]
             contr = self.qubit_count[gate] + 1
-            if rem - contr == 0 or rem - contr > 1:
+            if (
+                rem - contr == 0 or rem - contr > 1
+            ) and contr - 1 <= self.qc.num_qubits:
                 encryptor: list[int] = []
                 encryptor.append(idx)
-                qubits = random.sample(range(n), contr - 1)
+
+                qubits = random.sample(range(self.qc.num_qubits), contr - 1)
                 self.gate_mappings[gate](*qubits)
                 encryptor.extend(qubits)
                 key.append(encryptor)
                 rem -= contr
 
         flattened_list = list(map(lambda x: str(x), chain.from_iterable(key)))
+
         return "".join(flattened_list)
 
     def decrypt(self, key: str, incorrect_measure: str):
         deque = Deque()
-        n = self.qc.num_qubits
         measurement = [int(x) for x in incorrect_measure]
+        n = self.qc.num_qubits
 
         if len(measurement) == 0:
             raise ValueError("Not a valid measurement result!")
@@ -148,7 +139,7 @@ class QCircuit:
             else:
                 raise Exception("Unknown error while decoding!")
 
-        return ''.join(list(map(str, measurement)))
+        return "".join(list(map(str, measurement)))
 
     def measure(self, add_bits: bool = False):
         self.qc.measure_all(add_bits=add_bits)
@@ -167,16 +158,45 @@ class QCircuit:
         return transpiled, result.get_counts()
 
 
+def generate_grover_circuits(solutions: list[list[str]], folder_path: str):
+    grover = Grover()
+    for idx in range(len(solutions)):
+        qc = grover.create_grover_ciruit(solutions[idx])
+        write_qasm3(qc, f"{folder_path}/grover_{idx+1}.qasm")
+        with open(f"{folder_path}/grover_{idx+1}.qasm", "a") as file:
+            file.write(f"\n\n//Solutions = {solutions[idx]}")
+
+    print("Generated qasm files for the Grover circuits of provided solution sets.")
+
+
+def execute_grover(solution_sets: list[list[str]]):
+    qasm_folder_path = "qasm_files/grover"
+
+    if not os.path.exists(qasm_folder_path):
+        os.makedirs(qasm_folder_path)
+        generate_grover_circuits(solution_sets, qasm_folder_path)
+
+    for file in os.listdir(qasm_folder_path):
+        if os.path.isfile(os.path.join(qasm_folder_path, file)):
+            qc = QCircuit.from_qasm3(os.path.join(qasm_folder_path, file))
+            key: str = qc.encrypt(20)
+            print("Completed a file")
+            qc.measure(add_bits=True)
+            _, res = qc.compile_and_run()
+            print(f"Incorrect result = {res}")
+
+            plot_histogram(res, title="Incorrect matching state (after encryption)")
+            plt.show()
+
+            corrected_res = {}
+
+            for string, shots in res.items():
+                decrypted_measure = qc.decrypt(key, string)
+                corrected_res[decrypted_measure] = shots
+
+            plot_histogram(corrected_res, title="Actual measurement (decrypted)")
+            plt.show()
+
+
 if __name__ == "__main__":
-    qc = QCircuit.from_qasm2("output.qasm")
-    qc.draw("text")
-    key = qc.encrypt(20)
-    qc.draw("text")
-    qc.measure()
-
-    transpiled, result = qc.compile_and_run()
-    print(result)
-
-    for incorrect_string in result.keys():
-        corrected_string = qc.decrypt(key, incorrect_string)
-        print(f"{incorrect_string} --> {corrected_string}")
+    execute_grover(solution_sets=[["100", "101"], ["01"], ["1101"]])
