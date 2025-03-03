@@ -1,4 +1,5 @@
 from itertools import chain
+from numpy import add
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
 from qiskit.visualization import plot_histogram
@@ -7,6 +8,7 @@ from dequeue import Deque
 from helper import *
 import random
 from codes.Grover import Grover
+from codes.BernsteinVazirani import BernsteinVazirani as BV
 import os
 
 
@@ -56,9 +58,11 @@ class QCircuit:
     def to_qasm3(self, file_name: str):
         write_qasm3(self.qc, file_name)
 
-    def encrypt(self, key_size: int) -> str:
+    def encrypt(self, key_size: int, effective_qubits: int = -1) -> str:
         rem = key_size
         key: list[list[int]] = []
+        if effective_qubits == -1:
+            effective_qubits = self.qc.num_qubits
 
         while rem > 0:
             idx = random.randint(0, 5)
@@ -66,11 +70,11 @@ class QCircuit:
             contr = self.qubit_count[gate] + 1
             if (
                 rem - contr == 0 or rem - contr > 1
-            ) and contr - 1 <= self.qc.num_qubits:
+            ) and contr - 1 <= effective_qubits:
                 encryptor: list[int] = []
                 encryptor.append(idx)
 
-                qubits = random.sample(range(self.qc.num_qubits), contr - 1)
+                qubits = random.sample(range(effective_qubits), contr - 1)
                 self.gate_mappings[gate](*qubits)
                 encryptor.extend(qubits)
                 key.append(encryptor)
@@ -80,10 +84,15 @@ class QCircuit:
 
         return "".join(flattened_list)
 
-    def decrypt(self, key: str, incorrect_measure: str):
+    def decrypt(self, key: str, incorrect_measure: str, effective_qubits: int = -1):
         deque = Deque()
+        print(f"Key = {key}, measure={incorrect_measure}")
         measurement = [int(x) for x in incorrect_measure]
-        n = self.qc.num_qubits
+        
+        n = effective_qubits
+        
+        if n == -1:
+            n = self.qc.num_qubits
 
         if len(measurement) == 0:
             raise ValueError("Not a valid measurement result!")
@@ -141,8 +150,11 @@ class QCircuit:
 
         return "".join(list(map(str, measurement)))
 
-    def measure(self, add_bits: bool = False):
-        self.qc.measure_all(add_bits=add_bits)
+    def measure(self, add_bits: bool = False, measure_all:bool = True, num_qubits: int=0):
+        if measure_all:
+            self.qc.measure_all(add_bits=add_bits)
+        else:
+            self.qc.measure(range(num_qubits), range(num_qubits))
 
     def draw(self, output="mpl", **kwargs):
         if output == "text":
@@ -197,6 +209,62 @@ def execute_grover(solution_sets: list[list[str]]):
             plot_histogram(corrected_res, title="Actual measurement (decrypted)")
             plt.show()
 
+def generate_bv_circuits(solutions: list[list], folder_path: str):
+    factor: str = ""
+    bias: int = 0
+    
+    for item in solutions:
+        factor = item[0]
+        if len(item) == 2:
+            bias = item[1] # type: ignore
+        
+        bv = BV(factor, bias)
+        for idx in range(len(solutions)):
+            qc = bv.create_circuit(add_measurement=False)
+            write_qasm2(qc, f"{folder_path}/bv_{idx+1}.qasm")
+            with open(f"{folder_path}/bv_{idx+1}.qasm", "a") as file:
+                file.write(f"\n\n//Solutions = {solutions[idx]}")
+
+    print("Generated qasm files for the Bernstein Vazirani circuits of provided solution sets.")
+
+
+def execute_bv(solution_sets: list[list]):
+    qasm_folder_path = "qasm_files/bv"
+
+    if not os.path.exists(qasm_folder_path):
+        os.makedirs(qasm_folder_path)
+        generate_bv_circuits(solution_sets, qasm_folder_path)
+
+    for file in os.listdir(qasm_folder_path):
+        if os.path.isfile(os.path.join(qasm_folder_path, file)):
+            qc = QCircuit.from_qasm2(os.path.join(qasm_folder_path, file))
+            qc.qc.barrier()
+            print(qc.qc.num_qubits)
+            key: str = qc.encrypt(20, effective_qubits=qc.qc.num_qubits-1)
+            qc.qc.barrier()
+            # print("Completed a file")
+            qc.measure(num_qubits=qc.qc.num_qubits-1, measure_all=False)
+            qc.draw()
+            _, res = qc.compile_and_run(shots=20)
+            print(f"Incorrect result = {res}")
+
+            corrected_res = {}
+
+            for string, shots in res.items():
+                decrypted_measure = qc.decrypt(key, string, effective_qubits=qc.qc.num_qubits-1)
+                corrected_res[decrypted_measure] = shots
+            
+            print(corrected_res)
+
 
 if __name__ == "__main__":
     execute_grover(solution_sets=[["100", "101"], ["01"], ["1101"]])
+    execute_bv([["100101", 1], ["100101", 0]])
+    
+
+# """
+#     Shor's algo
+#     VQE
+#     QAOA
+#     BV
+# """
