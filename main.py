@@ -68,9 +68,7 @@ class QCircuit:
             idx = random.randint(0, 5)
             gate = self.gate_index[idx]
             contr = self.qubit_count[gate] + 1
-            if (
-                rem - contr == 0 or rem - contr > 1
-            ) and contr - 1 <= effective_qubits:
+            if (rem - contr == 0 or rem - contr > 1) and contr - 1 <= effective_qubits:
                 encryptor: list[int] = []
                 encryptor.append(idx)
 
@@ -88,9 +86,9 @@ class QCircuit:
         deque = Deque()
         print(f"Key = {key}, measure={incorrect_measure}")
         measurement = [int(x) for x in incorrect_measure]
-        
+
         n = effective_qubits
-        
+
         if n == -1:
             n = self.qc.num_qubits
 
@@ -150,7 +148,9 @@ class QCircuit:
 
         return "".join(list(map(str, measurement)))
 
-    def measure(self, add_bits: bool = False, measure_all:bool = True, num_qubits: int=0):
+    def measure(
+        self, add_bits: bool = False, measure_all: bool = True, num_qubits: int = 0
+    ):
         if measure_all:
             self.qc.measure_all(add_bits=add_bits)
         else:
@@ -209,15 +209,16 @@ def execute_grover(solution_sets: list[list[str]]):
             plot_histogram(corrected_res, title="Actual measurement (decrypted)")
             plt.show()
 
+
 def generate_bv_circuits(solutions: list[list], folder_path: str):
     factor: str = ""
     bias: int = 0
-    
+
     for item in solutions:
         factor = item[0]
         if len(item) == 2:
-            bias = item[1] # type: ignore
-        
+            bias = item[1]  # type: ignore
+
         bv = BV(factor, bias)
         for idx in range(len(solutions)):
             qc = bv.create_circuit(add_measurement=False)
@@ -225,14 +226,17 @@ def generate_bv_circuits(solutions: list[list], folder_path: str):
             with open(f"{folder_path}/bv_{idx+1}.qasm", "a") as file:
                 file.write(f"\n\n//Solutions = {solutions[idx]}")
 
-    print("Generated qasm files for the Bernstein Vazirani circuits of provided solution sets.")
+    print(
+        "Generated qasm files for the Bernstein Vazirani circuits of provided solution sets."
+    )
 
 
-def execute_bv(solution_sets: list[list]):
+def execute_bv(solution_sets: list[list] | None = None):
     qasm_folder_path = "qasm_files/bv"
 
-    if not os.path.exists(qasm_folder_path):
-        os.makedirs(qasm_folder_path)
+    if solution_sets is not None:
+        if not os.path.exists(qasm_folder_path):
+            os.makedirs(qasm_folder_path)
         generate_bv_circuits(solution_sets, qasm_folder_path)
 
     for file in os.listdir(qasm_folder_path):
@@ -240,10 +244,10 @@ def execute_bv(solution_sets: list[list]):
             qc = QCircuit.from_qasm2(os.path.join(qasm_folder_path, file))
             qc.qc.barrier()
             print(qc.qc.num_qubits)
-            key: str = qc.encrypt(20, effective_qubits=qc.qc.num_qubits-1)
+            key: str = qc.encrypt(20, effective_qubits=qc.qc.num_qubits - 1)
             qc.qc.barrier()
             # print("Completed a file")
-            qc.measure(num_qubits=qc.qc.num_qubits-1, measure_all=False)
+            qc.measure(num_qubits=qc.qc.num_qubits - 1, measure_all=False)
             qc.draw()
             _, res = qc.compile_and_run(shots=20)
             print(f"Incorrect result = {res}")
@@ -251,20 +255,14 @@ def execute_bv(solution_sets: list[list]):
             corrected_res = {}
 
             for string, shots in res.items():
-                decrypted_measure = qc.decrypt(key, string, effective_qubits=qc.qc.num_qubits-1)
+                decrypted_measure = qc.decrypt(
+                    key, string, effective_qubits=qc.qc.num_qubits - 1
+                )
                 corrected_res[decrypted_measure] = shots
-            
+
             print(corrected_res)
 
 
 if __name__ == "__main__":
     execute_grover(solution_sets=[["100", "101"], ["01"], ["1101"]])
     execute_bv([["100101", 1], ["100101", 0]])
-    
-
-# """
-#     Shor's algo
-#     VQE
-#     QAOA
-#     BV
-# """
