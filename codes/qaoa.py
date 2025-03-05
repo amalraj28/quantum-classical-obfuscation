@@ -11,6 +11,8 @@ from qiskit_ibm_runtime import SamplerV2 as Sampler
 from typing import Sequence
 from qiskit_aer import AerSimulator
 
+# Code is taken as is from IBM Qiskit Learning and modified in structure to fit with our framework
+# https://learning.quantum.ibm.com/tutorial/quantum-approximate-optimization-algorithm
 
 class QAOA:
     def __init__(self, n: int, adjacency_list: list[tuple[int, int, float]]):
