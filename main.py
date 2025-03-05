@@ -9,6 +9,8 @@ from helper import *
 import random
 from codes.Grover import Grover
 from codes.BernsteinVazirani import BernsteinVazirani as BV
+from codes.QAOA import QAOA
+from copy import deepcopy
 import os
 
 
@@ -84,7 +86,6 @@ class QCircuit:
 
     def decrypt(self, key: str, incorrect_measure: str, effective_qubits: int = -1):
         deque = Deque()
-        print(f"Key = {key}, measure={incorrect_measure}")
         measurement = [int(x) for x in incorrect_measure]
 
         n = effective_qubits
@@ -263,6 +264,68 @@ def execute_bv(solution_sets: list[list] | None = None):
             print(corrected_res)
 
 
+def generate_qaoa_circuit(
+    adjacency_list: list[tuple[int, int, int | float]], folder_path: str
+):
+    num_qubits: int = 5
+    reps = 2
+    qaoa = QAOA(num_qubits, adjacency_list)
+    circuit = qaoa.create_circuit(reps=reps, measure_all=False)
+    backend = AerSimulator()
+    transpiled, result, objective_vals = qaoa.compile_and_run_circuit(
+        circuit, backend, reps=reps, cost_hamiltonian=qaoa.cost_hamiltonian
+    )
+    write_qasm3(transpiled, f"{folder_path}/qaoa_1.qasm")
+    with open(f"{folder_path}/qaoa_1.qasm", "a") as file:
+        file.write(f"\n\n//Adjacency list = {adjacency_list}")
+
+    print("Generated qasm files for the QAOA circuit of provided solution sets.")
+
+
+def execute_qaoa(solution_sets: list[tuple[int, int, int | float]]):
+    qasm_folder_path = "qasm_files/qaoa"
+
+    if solution_sets is not None:
+        if not os.path.exists(qasm_folder_path):
+            os.makedirs(qasm_folder_path)
+            generate_qaoa_circuit(solution_sets, qasm_folder_path)
+
+    for file in os.listdir(qasm_folder_path):
+        if os.path.isfile(os.path.join(qasm_folder_path, file)):
+            qc = QCircuit.from_qasm3(os.path.join(qasm_folder_path, file))
+            qc_copy = deepcopy(qc)
+            
+            qc.measure(add_bits=True)
+            qc.draw()
+            _, res = qc.compile_and_run(shots=1024)
+            plot_histogram(res, title="Original Result (without encryption)")
+            plt.show()
+            
+            qc_copy.qc.barrier()
+            key: str = qc_copy.encrypt(20)
+            qc_copy.qc.barrier()
+            # print("Completed a file")
+            qc_copy.measure(add_bits=True)
+            qc_copy.draw()
+            _, encrypted_res = qc_copy.compile_and_run(shots=1024)
+            plot_histogram(encrypted_res, title="Encrypted Result")
+            plt.show()
+            
+            corrected_res = {}
+
+            for string, shots in res.items():
+                decrypted_measure = qc.decrypt(
+                    key, string
+                )
+                corrected_res[decrypted_measure] = shots
+
+            plot_histogram(res, title="Decrypted Result")
+            plt.show()
+
+
 if __name__ == "__main__":
-    execute_grover(solution_sets=[["100", "101"], ["01"], ["1101"]])
-    execute_bv([["100101", 1], ["100101", 0]])
+    # execute_grover(solution_sets=[["100", "101"], ["01"], ["1101"]])
+    # execute_bv([["100101", 1], ["100101", 0]])
+    execute_qaoa(
+        [(0, 1, 1.0), (0, 2, 1.0), (0, 4, 1.0), (1, 2, 1.0), (2, 3, 1.0), (3, 4, 1.0)]
+    )
