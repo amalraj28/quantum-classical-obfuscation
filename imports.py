@@ -4,12 +4,10 @@ import numpy as np
 from qiskit.circuit.library import EfficientSU2
 from qiskit.quantum_info import SparsePauliOp
 from scipy.optimize import minimize
-from qiskit import QuantumCircuit, transpile
+from qiskit import QuantumCircuit, transpile, ClassicalRegister
 from qiskit_aer import AerSimulator
 from qiskit_ibm_runtime import EstimatorV2, SamplerV2
 from itertools import chain
-from qiskit import QuantumCircuit, transpile
-from qiskit_aer import AerSimulator
 from qiskit.visualization import plot_histogram, circuit_drawer
 import matplotlib.pyplot as plt
 from dequeue import Deque
@@ -20,5 +18,7 @@ from codes.BernsteinVazirani import BernsteinVazirani as BV
 from codes.QAOA import QAOA
 from codes.VQE import VQE
 from codes.HHL import HHL
-from copy import deepcopy
+from codes.Shor import Shor
 import os
+from fractions import Fraction
+import re
