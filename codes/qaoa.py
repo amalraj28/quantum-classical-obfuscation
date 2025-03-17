@@ -27,10 +27,6 @@ class QAOA:
         plt.show()
 
     def __build_max_cut_paulis(self) -> list[tuple[str, float]]:
-        """Convert the graph to Pauli list.
-
-        This function does the inverse of `build_max_cut_graph`
-        """
         pauli_list = []
         for edge in list(self.graph.edge_list()):
             paulis = ["I"] * len(self.graph)
