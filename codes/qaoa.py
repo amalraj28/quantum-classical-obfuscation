@@ -14,6 +14,7 @@ from qiskit_aer import AerSimulator
 # Code is taken as is from IBM Qiskit Learning and modified in structure to fit with our framework
 # https://learning.quantum.ibm.com/tutorial/quantum-approximate-optimization-algorithm
 
+
 class QAOA:
     def __init__(self, n: int, adjacency_list: list[tuple[int, int, float]]):
         self.num_qubits = n
@@ -94,7 +95,7 @@ class QAOA:
             result,
             objective_func_vals,
         )
-    
+
     def plot_optim_graph(self, objective_func_vals):
         plt.figure(figsize=(12, 6))
         plt.plot(objective_func_vals)
@@ -171,12 +172,13 @@ if __name__ == "__main__":
     circuit = qaoa.create_circuit(reps=circuit_reps)
     qaoa.draw(circuit)
     backend = AerSimulator()
-    transpiled, result, objective_vals = qaoa.compile_and_run_circuit(circuit, backend, reps=circuit_reps, cost_hamiltonian=qaoa.cost_hamiltonian)
+    transpiled, result, objective_vals = qaoa.compile_and_run_circuit(
+        circuit, backend, reps=circuit_reps, cost_hamiltonian=qaoa.cost_hamiltonian
+    )
     print(result)
     qaoa.plot_optim_graph(objective_vals)
     int_dist, bin_dist = qaoa.get_distribution(transpiled, backend)
-    
+
     ans = qaoa.get_result(int_dist)
     print(f"Ans = {ans}")
     qaoa.plot_histogram(bin_dist)
-    

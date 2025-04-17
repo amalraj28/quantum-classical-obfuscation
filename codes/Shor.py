@@ -1,10 +1,7 @@
-from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
-from qiskit_aer import AerSimulator
-import os
-from fractions import Fraction
-import matplotlib.pyplot as plt
-import re
-from copy import deepcopy
+# Code taken from the below website and modified to fit our framework
+# https://github.com/Qiskit/textbook/blob/main/notebooks/ch-algorithms/shor.ipynb
+
+from qiskit import QuantumCircuit, QuantumRegister
 import numpy as np
 import copy
 

@@ -1,3 +1,6 @@
+# Code is inspired from Google Cirq implementation of Bernstein-Vazirani algorithm
+# https://github.com/quantumlib/Cirq/blob/main/examples/bernstein_vazirani.py
+
 from qiskit import QuantumCircuit, QuantumRegister, AncillaRegister, ClassicalRegister
 import matplotlib.pyplot as plt
 

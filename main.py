@@ -148,14 +148,23 @@ class QCircuit:
         if measure_all:
             self.qc.measure_all(add_bits=add_bits)
         else:
-            self.qc.measure(qubits_to_measure, qubits_to_measure)
+            if add_bits:
+                # Create a new ClassicalRegister and add it to the circuit
+                cr = ClassicalRegister(len(qubits_to_measure))
+                self.qc.add_register(cr)
+                # Map qubits to the new classical register
+                self.qc.measure(
+                    qubits_to_measure, [cr[i] for i in range(len(qubits_to_measure))]  # type: ignore
+                )
+            else:
+                self.qc.measure(qubits_to_measure, qubits_to_measure)
 
     def draw(self, output="mpl", **kwargs):
         if output == "text":
             print(self.qc.draw(output=output, **kwargs))
         else:
             self.qc.draw(output=output, **kwargs)
-            plt.show()
+            # plt.show()
 
     def compile_and_run(self, shots=1024):
         simulator = AerSimulator()
@@ -163,13 +172,90 @@ class QCircuit:
         result = simulator.run(transpiled, shots=shots).result()
         return transpiled, result.get_counts()
 
+    @staticmethod
+    def compute_tvd(original_res, obfus_res, shots):
+        all_keys = set(original_res.keys()) | set(obfus_res.keys())
+        return sum(
+            abs(original_res.get(k, 0) - obfus_res.get(k, 0)) for k in all_keys
+        ) / (2 * shots)
 
-def execute_grover(solution_sets: list[list[str]] | None = None, key_size: int = 20):
+    # @staticmethod
+    # def compute_dfc(obfus_res, correct_output, shots):
+    #     correct_count = obfus_res.get(correct_output, 0)
+    #     max_wrong = max(
+    #         (v for k, v in obfus_res.items() if k != correct_output), default=0
+    #     )
+    #     return (correct_count - max_wrong) / shots
+    @staticmethod
+    def compute_dfc(obfus_res, correct_outputs, shots):
+        preserved_count = sum(obfus_res.get(output, 0) for output in correct_outputs)
+        max_wrong = max(
+            (v for k, v in obfus_res.items() if k not in correct_outputs), default=0
+        )
+        return (preserved_count - max_wrong) / shots
+
+
+def execute_grover(
+    tvd_list, dfc_list, solution_sets: list[list[str]] | None = None, key_size: int = 20, iter: int = 1
+):
+    def extract_marked_states(qasm_file_path: str) -> list[str]:
+        with open(qasm_file_path, "r") as file:
+            content = file.read()
+        # The solutions are appended as a comment: "//Solutions = ['state1', 'state2', ...]"
+        solutions_line = content.split("//Solutions = ")[-1].strip()
+        # Parse the list of solutions (e.g., "['1010101010', '1100110011', ...]")
+
+        marked_states = ast.literal_eval(solutions_line)
+        return marked_states
+
+    def compute_dfc(original: dict, encrypted: dict, marked_states: list[str]) -> float:
+        total_shots = sum(encrypted.values())
+        if total_shots == 0:
+            return 1.0
+
+        filtered_original = {
+            state: count for state, count in original.items() if state in marked_states
+        }
+
+        correct_shots = 0
+        for state, shots in encrypted.items():
+            if state in filtered_original:
+                correct_shots += shots
+
+        incorrect_shots = {
+            state: shots
+            for state, shots in encrypted.items()
+            if state not in filtered_original
+        }
+
+        incorrect_counts = sorted(incorrect_shots.values(), reverse=True)
+        top_5_incorrect = (
+            sum(incorrect_counts[:5])
+            if len(incorrect_counts) >= 5
+            else sum(incorrect_counts)
+        )
+
+        return (correct_shots - top_5_incorrect) / total_shots
+
+    def compute_tvd(original: dict, encrypted: dict) -> float:
+        total_shots = sum(original.values())
+        if total_shots == 0:
+            return 1.0
+
+        all_states = set(original.keys()).union(set(encrypted.keys()))
+        total_diff = 0
+        for state in all_states:
+            count_orig = original.get(state, 0)
+            count_enc = encrypted.get(state, 0)
+            total_diff += abs(count_orig - count_enc)
+
+        return total_diff / (2 * total_shots)
+
     def generate_grover_circuits(solutions: list[list[str]], folder_path: str):
         grover = Grover()
         for idx in range(len(solutions)):
             qc = grover.create_grover_ciruit(solutions[idx])
-            file_name = generate_unique_string()
+            file_name = f"grover_{idx+1}"
             write_qasm3(qc, f"{folder_path}/{file_name}.qasm")
             with open(f"{folder_path}/{file_name}.qasm", "a") as file:
                 file.write(f"\n\n//Solutions = {solutions[idx]}")
@@ -191,36 +277,44 @@ def execute_grover(solution_sets: list[list[str]] | None = None, key_size: int =
             qc_copy.measure(
                 qubits_to_measure=list(range(qc_copy.qc.num_qubits)), add_bits=True
             )
-            qc_copy.draw(filename="pics/grover/original_circuit.png", output="mpl")
-            _, res_orig = qc_copy.compile_and_run()
-            plot_histogram(res_orig, title="Original State (before encryption)")
-            plt.savefig("pics/grover/original_result.png")
-            # plt.show()
+            qc_copy.draw(
+                filename=f"pics/grover/original_circuit_{iter}.png", output="mpl"
+            )
+            _, original_res = qc_copy.compile_and_run()
+            plot_histogram(original_res, title="Original State (before encryption)")
+            plt.savefig(f"pics/grover/original_result_{iter}.png")
 
             key: str = qc.encrypt(key_size)
             qc.measure(
                 qubits_to_measure=list(range(qc_copy.qc.num_qubits)), add_bits=True
             )
-            qc.draw(filename="pics/grover/encrypted_circuit.png", output="mpl")
-            _, res = qc.compile_and_run()
-            print(f"Incorrect result = {res}")
+            qc.draw(filename=f"pics/grover1/encrypted_circuit_{iter}.png", output="mpl")
+            _, encrypted_res = qc.compile_and_run()
+            print(f"Incorrect result = {encrypted_res}")
 
-            plot_histogram(res, title="Incorrect matching state (after encryption)")
-            plt.savefig("pics/grover/encrypted_result.png")
-            # # plt.show()
+            plot_histogram(
+                encrypted_res, title="Incorrect matching state (after encryption)"
+            )
+            plt.savefig(f"pics/grover1/encrypted_result_{iter}.png")
 
             corrected_res = {}
-
-            for string, shots in res.items():
+            for string, shots in encrypted_res.items():
                 decrypted_measure = qc.decrypt(key, string)
                 corrected_res[decrypted_measure] = shots
 
             plot_histogram(corrected_res, title="Actual measurement (decrypted)")
-            plt.savefig("pics/grover/decrypted_result.png")
-            # # plt.show()
+            plt.savefig(f"pics/grover1/decrypted_result_{iter}.png")
+            marked_state = extract_marked_states(os.path.join(qasm_folder_path, file))
+            dfc_list.append(compute_dfc(original_res, encrypted_res, marked_state))
+            tvd_list.append(compute_tvd(original_res, encrypted_res))
+
+    print(f"Length of tvd_list: {len(tvd_list)}")
+    print(f"Length of dfc_list: {len(dfc_list)}")
 
 
-def execute_bv(solution_sets: list[list[str]] | None = None):
+def execute_bv(
+    tvd_list, dfc_list, solution_sets: list[list[str]] | None = None
+):
     def generate_bv_circuits(solutions: list[list], folder_path: str):
         factor: str = ""
         bias: int = 0
@@ -255,11 +349,15 @@ def execute_bv(solution_sets: list[list[str]] | None = None):
             qc_copy = deepcopy(qc)
 
             qc_copy.measure(
-                qubits_to_measure=list(range(qc.qc.num_qubits-1)), measure_all=False
+                qubits_to_measure=list(range(qc.qc.num_qubits - 1)), measure_all=False
             )
             qc_copy.draw(filename="pics/bv/original_circuit.png")
-            _, res_orig = qc_copy.compile_and_run(shots=20)
-            plot_histogram(res_orig, title="Actual marked state (without encryption)")
+            _, res_orig = qc_copy.compile_and_run(shots=1024)
+            plot_histogram(
+                res_orig,
+                title="Actual marked state (without encryption)",
+                color=["black", "white"],
+            )
             plt.savefig("pics/bv/original_result.png")
             # plt.show()
 
@@ -267,16 +365,16 @@ def execute_bv(solution_sets: list[list[str]] | None = None):
             key: str = qc.encrypt(20, effective_qubits=qc.qc.num_qubits - 1)
             qc.qc.barrier()
             qc.measure(
-                qubits_to_measure=list(range(qc.qc.num_qubits-1)), measure_all=False
+                qubits_to_measure=list(range(qc.qc.num_qubits - 1)), measure_all=False
             )
-            qc.draw(filename="pics/bv/encrypted_circuit.png", output="mpl")
-            _, res = qc.compile_and_run(shots=20)
-            plot_histogram(res, title="Marked State after encryption")
+            qc.draw(filename="pics/bv/encrypted_circuit.png", output="mpl", style="bw")
+            _, encrypted_res = qc.compile_and_run(shots=20)
+            plot_histogram(encrypted_res, title="Marked State after encryption")
             plt.savefig("pics/bv/encrypted_result.png")
-            # plt.show()
+            plt.show()
             corrected_res = {}
 
-            for string, shots in res.items():
+            for string, shots in encrypted_res.items():
                 decrypted_measure = qc.decrypt(
                     key, string, effective_qubits=qc.qc.num_qubits - 1
                 )
@@ -284,14 +382,21 @@ def execute_bv(solution_sets: list[list[str]] | None = None):
 
             plot_histogram(corrected_res, title="Marked state after decryption")
             plt.savefig("pics/bv/decrypted_result.png")
-            # plt.show()
+            plt.show()
+            tvd_list.append(tvd(original_res=res_orig, encrypted_res=encrypted_res))
+            dfc_list.append(dfc(original_res=res_orig, encrypted_res=encrypted_res))
 
 
 def execute_qaoa(
-    adjacency_list: list[tuple[int, int, int | float]] | None,
-    num_qubits: int,
-    reps: int,
+    tvd_list,
+    dfc_list,
+    adjacency_list: list[tuple[int, int, int | float]] | None = None,
+    num_qubits: int = 5,
+    reps: int = 5,
+    idx: int = 1,
 ):
+    plt.close("all")
+
     def generate_qaoa_circuit(
         adjacency_list: list[tuple[int, int, int | float]], folder_path: str
     ):
@@ -320,74 +425,107 @@ def execute_qaoa(
             qc = QCircuit.from_qasm3(os.path.join(qasm_folder_path, file))
             qc_copy = deepcopy(qc)
 
-            qc.measure(qubits_to_measure=list(range(qc.qc.num_qubits)), add_bits=True)
-            qc.draw(filename="pics/qaoa/original_circuit.png", output="mpl")
-            _, res = qc.compile_and_run(shots=1024)
-            plot_histogram(res, title="Original Result (without encryption)")
-            plt.savefig("pics/qaoa/original_result.png")
-            # plt.show()
+            SHOTS = 1024
+            if idx == 1:
+                qc.measure(
+                    qubits_to_measure=list(range(qc.qc.num_qubits)), add_bits=True
+                )
+                qc.draw(
+                    filename="pics/qaoa/original_circuit.png", output="mpl", style="bw"
+                )
+                global res
+                _, res = qc.compile_and_run(shots=SHOTS)
 
-            qc_copy.qc.barrier()
+                with open("original_result.txt", "a") as file:
+                    file.write(f"{res}\n")
+
+                plot_histogram(
+                    res,
+                    title="Original Result (without encryption)",
+                    color=["black", "white"],
+                )
+                plt.savefig("pics/qaoa/original_result.png")
+
             key: str = qc_copy.encrypt(20)
-            qc_copy.qc.barrier()
-            # print("Completed a file")
             qc_copy.measure(
                 qubits_to_measure=list(range(qc.qc.num_qubits)), add_bits=True
             )
-            qc_copy.draw(filename="pics/qaoa/encrypted_circuit.png", output="mpl")
-            _, encrypted_res = qc_copy.compile_and_run(shots=1024)
-            plot_histogram(encrypted_res, title="Encrypted Result")
-            plt.savefig("pics/qaoa/encrypted_result.png")
+            qc_copy.draw(
+                filename=f"pics/qaoa/encrypted_circuit_{idx}.png",
+                output="mpl",
+                style="bw",
+            )
+            _, encrypted_res = qc_copy.compile_and_run(shots=SHOTS)
+
+            with open("encrypted_res.txt", "a") as file:
+                file.write(f"{idx}). {encrypted_res}\n")
+
+            tvd = QCircuit.compute_tvd(res, encrypted_res, SHOTS)
+            tvd_list.append(tvd)
+            correct_res = [
+                k
+                for k, v in sorted(res.items(), key=lambda item: item[1], reverse=True)[
+                    :4
+                ]
+            ]
+
+            dfc = QCircuit.compute_dfc(encrypted_res, correct_res, SHOTS)
+
+            dfc_list.append(dfc)
+
+            plot_histogram(
+                encrypted_res, title="Encrypted Result", color=["black", "white"]
+            )
             # plt.show()
+            plt.savefig(f"pics/qaoa/encrypted_result_{idx}.png")
 
             corrected_res = {}
 
-            for string, shots in res.items():
+            for string, shots in encrypted_res.items():
                 decrypted_measure = qc.decrypt(key, string)
                 corrected_res[decrypted_measure] = shots
 
-            plot_histogram(res, title="Decrypted Result")
-            plt.savefig("pics/qaoa/decrypted_result.png")
+            with open("decrypted_res.txt", "a") as file:
+                file.write(f"{idx}). {corrected_res}\n")
+
+            plot_histogram(
+                corrected_res, title="Decrypted Result", color=["black", "white"]
+            )
             # plt.show()
+            plt.savefig(f"pics/qaoa/decrypted_result_{idx}.png")
 
+    with open("tvd.txt", "w") as file:
+        file.write(f"{tvd_list}")
 
-def execute_vqe():
-    hamiltonian = SparsePauliOp.from_list(
-        [("YZ", 0.3980), ("ZI", -0.3980), ("ZZ", -0.0113), ("XX", 0.1810)]
-    )
-    ansatz = EfficientSU2(hamiltonian.num_qubits)
-    backend = AerSimulator()
-    estimator = EstimatorV2(mode=backend)
-    sampler = SamplerV2(mode=backend)
-    vqe = VQE(ansatz, hamiltonian, estimator, sampler)
-    vqe.draw(ansatz, title="Ansatz before compiling")
-    ansatz_copy = vqe.get_uncompiled_ansatz()
-    vqe.compile_ansatz(backend)
+    with open("dfc.txt", "w") as file:
+        file.write(f"{dfc_list}")
 
 
 def execute_hhl(
+    hhl_tvd,
+    hhl_dfc,
     initial_state: list[float] | None = None,
     clock_reg: int = 2,
     shots: int = 1024,
     generate_circuit: bool = False,
+    iter: int = 1,
 ):
+    plt.close("all")
+
     def generate_hhl_circuit(
         folder_path: str, initial_state: list[float] | None = None
     ):
-        # Create HHL instance
         qc = HHL(clock_reg=clock_reg)
 
-        # State preparation
         if initial_state is not None:
             qc.qc.initialize(initial_state, qc.input_reg[0])
         else:
-            qc.qc.x(qc.input_reg)  # Default to |1> as in your original
+            qc.qc.x(qc.input_reg)
 
-        # Build the full circuit
         qc.qc.h(qc.clock)
         qc.hhl()
         qc.qc.h(qc.clock)
-        file_name = f"{folder_path}/{generate_unique_string()}.qasm"
+        file_name = f"{folder_path}/hhl_{iter}.qasm"
         write_qasm3(qc.qc, file_name)
         with open(file_name, "a") as f:
             f.write(
@@ -401,8 +539,7 @@ def execute_hhl(
     if generate_circuit:
         if not os.path.exists(qasm_folder_path):
             os.makedirs(qasm_folder_path)
-
-        generate_hhl_circuit(qasm_folder_path)
+        generate_hhl_circuit(qasm_folder_path, initial_state)
 
     for file in os.listdir(qasm_folder_path):
         if os.path.isfile(os.path.join(qasm_folder_path, file)):
@@ -414,14 +551,17 @@ def execute_hhl(
                 measure_all=True,
                 add_bits=True,
             )
-            qc.draw(output="mpl", filename="pics/hhl/original_circuit.png")
-            _, res = qc.compile_and_run(shots=10000)
-            print(res)
-            plot_histogram(res, title="Original Result (without encryption)")
-            plt.savefig("pics/hhl/original_result.png")
-            plt.close()
+            qc.draw(output="mpl", filename=f"pics/hhl/original_circuit_{iter}.png")
+            _, res = qc.compile_and_run(shots=shots)
 
-            qc_copy.qc.barrier()
+            with open(f"original_result_hhl_{iter}.txt", "a") as file:
+                file.write(f"{res}\n")
+
+            plot_histogram(res, title="Original Result (without encryption)")
+            plt.savefig(f"pics/hhl/original_result_{iter}.png")
+            plt.close("all")
+            # plt.show()
+
             key = qc_copy.encrypt(key_size=20)
             qc_copy.measure(
                 qubits_to_measure=list(range(qc_copy.qc.num_qubits)),
@@ -429,23 +569,42 @@ def execute_hhl(
                 add_bits=True,
             )
 
-            qc_copy.draw(output="mpl", filename="pics/hhl/encrypted_circuit.png")
-            _, encrypted_res = qc_copy.compile_and_run(shots=10000)
-            print(encrypted_res)
+            qc_copy.draw(
+                output="mpl", filename=f"pics/hhl/encrypted_circuit_{iter}.png"
+            )
+            _, encrypted_res = qc_copy.compile_and_run(shots=shots)
+            with open(f"encrypted_result_hhl_{iter}.txt", "a") as file:
+                file.write(f"{encrypted_res}\n")
+
             plot_histogram(encrypted_res, title="Encrypted Result")
-            plt.savefig("pics/hhl/encrypted_result.png")
+            plt.savefig(f"pics/hhl/encrypted_result_{iter}.png")
             plt.close()
+            # plt.show()
 
             corrected_res = {}
-
             for string, shots in encrypted_res.items():
                 decrypted_measure = qc.decrypt(key, string)
                 corrected_res[decrypted_measure] = shots
 
+            with open(f"decrypted_result_hhl_{iter}.txt", "a") as file:
+                file.write(f"{corrected_res}\n")
+
             plot_histogram(corrected_res, title="Decrypted Result")
-            plt.savefig("pics/hhl/decrypted_result.png")
+            plt.savefig(f"pics/hhl/decrypted_result_{iter}.png")
+            plt.close()
             # plt.show()
 
+            hhl_tvd.append(tvd(res, encrypted_res))
+            hhl_dfc.append(dfc(res, encrypted_res))
+
+
+def execute_shor(
+    tvd_list,
+    dfc_list,
+    number_sets: list[tuple[int, int]] | None = None,
+    key_size: int = 20,
+    iter: int = 1,
+):
     """Execute Shor's algorithm for given N and a pairs, saving QASM and results.
 
     Args:
@@ -453,13 +612,11 @@ def execute_hhl(
         key_size (int): Size of encryption key
     """
 
-
-def execute_shor(number_sets: list[tuple[int, int]] | None = None, key_size: int = 20):
     def generate_shor_circuits(numbers: list[tuple[int, int]], folder_path: str):
         for idx, (N, a) in enumerate(numbers):
             shor_instance = Shor(N, a)
             qc = shor_instance.create_shor_circuit()
-            file_name = generate_unique_string()
+            file_name = f"shor_qasm_{iter}"
             write_qasm3(qc, f"{folder_path}/{file_name}.qasm")
             with open(f"{folder_path}/{file_name}.qasm", "a") as file:
                 file.write(f"\n\n//N = {N}, a = {a}")
@@ -493,10 +650,21 @@ def execute_shor(number_sets: list[tuple[int, int]] | None = None, key_size: int
             qc_copy.measure(
                 qubits_to_measure=list(range(shor_instance.n_count)), measure_all=False
             )
-            qc_copy.draw(filename="pics/shor/original_circuit.png", output="mpl")
+            qc_copy.draw(
+                filename=f"pics/shor/original_circuit_{iter}.png",
+                output="mpl",
+                style="bw",
+            )
             _, res_orig = qc_copy.compile_and_run()
-            plot_histogram(res_orig, title="Original State (before encryption)")
-            plt.savefig("pics/shor/original_result.png")
+            plot_histogram(
+                res_orig,
+                title="Original State (before encryption)",
+                color=["black", "white"],
+            )
+            plt.savefig(f"pics/shor/original_result_{iter}.png")
+
+            with open(f"results/shor/original_result_{iter}.txt", "a") as file:
+                file.write(f"{iter}). {res_orig}\n")
 
             # Encrypted circuit execution
             key = qc.encrypt(key_size, effective_qubits=shor_instance.n_count)
@@ -504,21 +672,48 @@ def execute_shor(number_sets: list[tuple[int, int]] | None = None, key_size: int
             qc.measure(
                 qubits_to_measure=list(range(shor_instance.n_count)), measure_all=False
             )
-            qc.draw(filename="pics/shor/encrypted_circuit.png", output="mpl")
-            _, res = qc.compile_and_run()
-            print(f"Encrypted result = {res}")
-            plot_histogram(res, title="Encrypted measurement (after encryption)")
-            plt.savefig("pics/shor/encrypted_result.png")
+            qc.draw(
+                filename=f"pics/shor/encrypted_circuit_{iter}.png",
+                output="mpl",
+                style="bw",
+            )
+            _, encrypted_res = qc.compile_and_run()
+
+            with open(f"results/shor/encrypted_result_{iter}.txt", "a") as file:
+                file.write(f"{iter}). {encrypted_res}\n")
+
+            tvd_val = tvd(res_orig, encrypted_res)
+            dfc_val = dfc(res_orig, encrypted_res)
+
+            if tvd_list is not None:
+                tvd_list.append(tvd_val)
+
+            if dfc_list is not None:
+                dfc_list.append(dfc_val)
+
+            plot_histogram(
+                encrypted_res,
+                title="Encrypted measurement (after encryption)",
+                color=["black", "white"],
+            )
+            plt.savefig(f"pics/shor/encrypted_result_{iter}.png")
+            plt.close("all")
 
             # Decrypted result
             corrected_res = {}
-            for string, shots in res.items():
+            for string, shots in encrypted_res.items():
                 decrypted_measure = qc.decrypt(
                     key, string, effective_qubits=shor_instance.n_count
                 )
                 corrected_res[decrypted_measure] = shots
-            plot_histogram(corrected_res, title="Decrypted measurement")
-            plt.savefig("pics/shor/decrypted_result.png")
+            plot_histogram(
+                corrected_res, title="Decrypted measurement", color=["black", "white"]
+            )
+            plt.savefig(f"pics/shor/decrypted_result_{iter}.png")
+            plt.close("all")
+
+            with open(f"results/shor/decrypted_result_{iter}.txt", "a") as file:
+                file.write(f"{iter}). {corrected_res}\n")
 
             # Post-processing
             measured_value = max(res_orig, key=res_orig.get)
@@ -541,27 +736,89 @@ def execute_shor(number_sets: list[tuple[int, int]] | None = None, key_size: int
 
 
 if __name__ == "__main__":
+    grover_solutions = [
+        ["1011000110", "1110000011", "1011111111", "0111101001", "0010010111"],
+        ["1101111110", "0111010010", "0000110101", "0100100010", "0100111100"],
+        ["0111111111", "0111101000", "1100001101", "0011010111", "1000010000"],
+        ["0010100000", "1101111100", "1001110101", "0010101100", "0110110001"],
+        ["1011001101", "1010100001", "1011101100", "1010100111", "0100001110"],
+        ["1110011100", "1000010001", "1101011010", "0010001110", "1010111100"],
+        ["0011101000", "0010100110", "1011100010", "0100010111", "1001011101"],
+        ["1100110100", "0100111101", "1100100001", "0100110011", "1011010010"],
+        ["0101011000", "1000000010", "1011101010", "0010100101", "0110001100"],
+        ["1001100001", "1010111011", "1010000100", "0111000010", "1010110101"],
+    ]
+
     print("Executing Shor's algo")
+    tvd_shor = []
+    dfc_shor = []
     number_sets = [(15, 7)]
-    execute_shor(number_sets)
+    
+    execute_shor(tvd_shor, dfc_shor, number_sets)
+    
+    with open("tvd_shor.txt", "a") as file:
+        file.write(f"{tvd_shor}\n")
+
+    with open("dfc_shor.txt", "a") as file:
+        file.write(f"{dfc_shor}\n")
+    
     print("Shor's algo done")
 
     print("Executing Grover's algo")
-    execute_grover([["1101"]])
+    tvd_grover = []
+    dfc_grover = []
+    
+    for i in range(1, 101):
+        execute_grover(tvd_grover, dfc_grover, grover_solutions, iter=i)
+    
+    with open("tvd_grover.txt", "a") as file:
+        file.write(f"{tvd_grover}")
+
+    with open("dfc_grover.txt", "a") as file:
+        file.write(f"{dfc_grover}")
+
     print("Grover's algo done")
 
     print("Executing BV algo")
-    execute_bv([["10101010"]])
+    bv_tvd = []
+    bv_dfc = []
+    
+    for i in range(1, 101):
+        execute_bv(bv_tvd, bv_dfc)
+    
+    with open("bv_tvd.txt", "a") as file:
+        file.write(f"{bv_tvd}\n")
+
+    with open("bv_dfc.txt", "a") as file:
+        file.write(f"{bv_dfc}\n")
+    
     print("BV algo done")
 
     print("Executing QAOA algo")
-    execute_qaoa(
-        [(0, 1, 1.0), (0, 2, 1.0), (0, 4, 1.0), (1, 2, 1.0), (2, 3, 1.0), (3, 4, 1.0)],
-        num_qubits=5,
-        reps=2,
-    )
+    qaoa_tvd = []
+    qaoa_dfc = []
+    
+    for i in range(1, 101):
+        execute_qaoa(qaoa_tvd, qaoa_dfc, num_qubits=5, reps=2, idx=i)
+    
+    with open("tvd_qaoa.txt", "a") as file:
+        file.write(f"{qaoa_tvd}\n")
+
+    with open("dfc_qaoa.txt", "a") as file:
+        file.write(f"{qaoa_dfc}\n") 
+    
     print("QAOA done")
 
     print("Executing HHL algo")
-    execute_hhl(generate_circuit=True)
-    print("HHL algo done")
+    hhl_tvd = []
+    hhl_dfc = []
+    execute_hhl(hhl_tvd, hhl_dfc, generate_circuit=True)
+    
+    with open("tvd_hhl.txt", "a") as file:
+        file.write(f"{hhl_tvd}\n")
+
+    with open("dfc_hhl.txt", "a") as file:
+        file.write(f"{hhl_dfc}\n") 
+    
+    print("HHL done")
+    

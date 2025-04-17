@@ -1,4 +1,7 @@
-from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
+# Code taken from the below link and modified to fit into our framework
+# https://github.com/hywong2/HHL_Example/blob/main/HHL_Hector_Wong.ipynb
+
+from qiskit import QuantumCircuit, QuantumRegister, transpile
 from qiskit_aer import AerSimulator
 from qiskit.visualization import plot_histogram
 import numpy as np
@@ -6,7 +9,7 @@ from matplotlib import pyplot as plt
 
 class HHL:
     def __init__(
-        self, clock_reg: int = 2, input_reg: int = 1, ancilla: int = 1, measure: int = 2
+        self, clock_reg: int = 2, input_reg: int = 1, ancilla: int = 1
     ):
         self.clock = QuantumRegister(clock_reg, name="clock")
         self.input_reg = QuantumRegister(
