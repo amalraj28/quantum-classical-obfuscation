@@ -9,7 +9,6 @@ from qiskit.quantum_info import SparsePauliOp
 from scipy.optimize import minimize
 from qiskit import QuantumCircuit, transpile, ClassicalRegister, QuantumRegister, AncillaRegister
 from qiskit_aer import AerSimulator
-from qiskit_ibm_runtime import EstimatorV2, SamplerV2
 from itertools import chain
 from qiskit.visualization import plot_histogram, circuit_drawer
 import matplotlib.pyplot as plt

@@ -1029,7 +1029,7 @@ plt.figure(figsize=(10, 6))
 
 # Black and white boxplot
 box = plt.boxplot(
-    [dfc_list_shor, tvd_list_shor],
+    [dfc_list_qaoa, tvd_list_qaoa],
     patch_artist=True,
     boxprops=dict(facecolor="black", color="black"),
     whiskerprops=dict(color="black"),
@@ -1044,18 +1044,17 @@ box = plt.boxplot(
     ),
 )
 
-plt.xticks([1, 2], ["DFC", "TVD"], color="black")
+plt.xticks([1, 2], ["DFC", "TVD"], color="black", fontsize=20)
 plt.yticks(color="black")
-plt.ylabel("Value", color="black")
-plt.title("DFC and TVD plots for Shor's Algorithm", color="black")
+plt.ylabel("Value", color="black", fontsize=20)
+plt.title("DFC and TVD plots for QAOA Algorithm", color="black", fontsize=20)
 plt.grid(True, linestyle="--", color="gray", alpha=0.5)
 
 plt.tight_layout()
-plt.savefig("pics/shor/boxplot_dfc_tvd_bw.png", dpi=300)
+# plt.savefig("pics/qaoa/boxplot_dfc_tvd_bw1.png", dpi=300)
 plt.show()
 
 
-# # Data from your lists
 # tvd_list = [
 #     1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0,
 #     1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
