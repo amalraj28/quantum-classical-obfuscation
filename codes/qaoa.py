@@ -63,6 +63,7 @@ class QAOA:
         return transpiled
 
     def compile_and_run_circuit(self, circuit, backend, reps: int, cost_hamiltonian):
+        # Qiskit tutorial transpiles and then runs optimizer, so the same approach is followed here
         transpiled = self.__compile_circuit(circuit, backend)
         transpiled_no_meas = transpiled.remove_final_measurements(inplace=False)
         initial_gamma = np.pi
@@ -107,12 +108,10 @@ class QAOA:
         sampler = Sampler(mode=backend)
         pub = transpiled_circuit
         job = sampler.run([pub], shots=int(1e4))
-        counts_int = job.result()[0].data.meas.get_int_counts()
         counts_bin = job.result()[0].data.meas.get_counts()
-        shots = sum(counts_int.values())
-        final_distribution_int = {key: val / shots for key, val in counts_int.items()}
-        final_distribution_bin = {key: val / shots for key, val in counts_bin.items()}
-        return final_distribution_int, final_distribution_bin
+        shots = sum(counts_bin.values())
+        final_distribution_bin = {key[::-1]: val / shots for key, val in counts_bin.items()}
+        return final_distribution_bin
 
     def to_bitstring(self, integer, num_bits):
         result = np.binary_repr(integer, width=num_bits)
@@ -177,8 +176,6 @@ if __name__ == "__main__":
     )
     print(result)
     qaoa.plot_optim_graph(objective_vals)
-    int_dist, bin_dist = qaoa.get_distribution(transpiled, backend)
+    bin_dist = qaoa.get_distribution(transpiled, backend)
 
-    ans = qaoa.get_result(int_dist)
-    print(f"Ans = {ans}")
     qaoa.plot_histogram(bin_dist)
