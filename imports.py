@@ -17,7 +17,7 @@ from helper import *
 import random
 from codes.Grover import Grover
 from codes.BernsteinVazirani import BernsteinVazirani as BV
-from codes.QAOA import QAOA
+from codes.qaoa import QAOA
 from codes.HHL import HHL
 from codes.Shor import Shor
 import os
