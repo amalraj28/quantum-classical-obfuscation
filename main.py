@@ -56,7 +56,7 @@ class QCircuit:
 
     def encrypt(self, key_size: int, effective_qubits: int = -1) -> str:
         rem = key_size
-        key: list[list[int]] = []
+        key = []
         if effective_qubits == -1:
             effective_qubits = self.qc.num_qubits
 
@@ -66,17 +66,24 @@ class QCircuit:
             contr = self.qubit_count[gate] + 1
 
             if (rem - contr == 0 or rem - contr > 1) and contr - 1 <= effective_qubits:
-                encryptor: list[int] = []
+                encryptor: list[int | str] = ["@"]
                 encryptor.append(idx)
+                encryptor.append("#")
 
                 qubits = random.sample(range(effective_qubits), contr - 1)
                 self.gate_mappings[gate](*qubits)
-                encryptor.extend(qubits)
+                for qubit in qubits:
+                    encryptor.append(qubit)
+                    encryptor.append("|")
+
+                if len(encryptor):
+                    encryptor.pop()
+                # encryptor.extend(qubits)
                 key.append(encryptor)
                 rem -= contr
 
         flattened_list = list(map(lambda x: str(x), chain.from_iterable(key)))
-        return "".join(flattened_list)
+        return "".join(flattened_list[1:])
 
     def decrypt(self, key: str, incorrect_measure: str, effective_qubits: int = -1):
         deque = Deque()
@@ -89,22 +96,21 @@ class QCircuit:
         if len(measurement) == 0:
             raise ValueError("Not a valid measurement result!")
 
-        i = 0
-        while i < len(key):
-            gate_idx = int(key[i])
+        for item in key.split("@"):
+            index, qubits = item.split("#")
+            qubits = tuple(map(lambda x: int(x), qubits.split("|")))
+
+            gate_idx = int(index)
             if gate_idx not in self.gate_index:
                 raise ValueError(f"Invalid key {key}. Value at index {i+1} is invalid!")
 
             gate = self.gate_index[gate_idx]
-            num_qubits = self.qubit_count[gate]
-            qubits_as_str = key[i + 1 : i + 1 + num_qubits]
-            deque.push_back((gate, qubits_as_str))
-            i += 1 + num_qubits
+            deque.push_back((gate, qubits))
 
         while not deque.empty():
-            quantum_gate, qubits_string = deque.back()
+            quantum_gate, qubits = deque.back()
             deque.pop_back()
-            bit_pos = list(map(lambda x: n - int(x) - 1, qubits_string))
+            bit_pos = list(map(lambda x: n - x - 1, qubits))
 
             # Ensure bit_pos indices are within measurement bounds
             if all(0 <= pos < len(measurement) for pos in bit_pos):
@@ -164,7 +170,6 @@ class QCircuit:
             print(self.qc.draw(output=output, **kwargs))
         else:
             self.qc.draw(output=output, **kwargs)
-            # plt.show()
 
     def compile_and_run(self, shots=1024):
         simulator = AerSimulator()
@@ -179,13 +184,6 @@ class QCircuit:
             abs(original_res.get(k, 0) - obfus_res.get(k, 0)) for k in all_keys
         ) / (2 * shots)
 
-    # @staticmethod
-    # def compute_dfc(obfus_res, correct_output, shots):
-    #     correct_count = obfus_res.get(correct_output, 0)
-    #     max_wrong = max(
-    #         (v for k, v in obfus_res.items() if k != correct_output), default=0
-    #     )
-    #     return (correct_count - max_wrong) / shots
     @staticmethod
     def compute_dfc(obfus_res, correct_outputs, shots):
         preserved_count = sum(obfus_res.get(output, 0) for output in correct_outputs)
@@ -196,7 +194,11 @@ class QCircuit:
 
 
 def execute_grover(
-    tvd_list, dfc_list, solution_sets: list[list[str]] | None = None, key_size: int = 20, iter: int = 1
+    tvd_list,
+    dfc_list,
+    solution_sets: list[list[str]] | None = None,
+    key_size: int = 20,
+    iter: int = 1,
 ):
     def extract_marked_states(qasm_file_path: str) -> list[str]:
         with open(qasm_file_path, "r") as file:
@@ -262,7 +264,7 @@ def execute_grover(
 
         print("Generated qasm files for the Grover circuits of provided solution sets.")
 
-    qasm_folder_path = "qasm_files/grover"
+    qasm_folder_path = "qasm_files1/grover"
 
     if solution_sets is not None:
         if not os.path.exists(qasm_folder_path):
@@ -281,29 +283,41 @@ def execute_grover(
                 filename=f"pics/grover/original_circuit_{iter}.png", output="mpl"
             )
             _, original_res = qc_copy.compile_and_run()
-            plot_histogram(original_res, title="Original State (before encryption)")
-            plt.savefig(f"pics/grover/original_result_{iter}.png")
+            plot_histogram(
+                original_res,
+                title="Original State (before encryption)",
+                filename=f"pics/grover/original_result_{iter}.png",
+            )
+            print(f"Original result = {original_res}")
 
             key: str = qc.encrypt(key_size)
+
             qc.measure(
                 qubits_to_measure=list(range(qc_copy.qc.num_qubits)), add_bits=True
             )
-            qc.draw(filename=f"pics/grover1/encrypted_circuit_{iter}.png", output="mpl")
+            qc.draw(
+                filename=f"pics/grover/encrypted_circuit_{iter}.png",
+                output="mpl",
+            )
             _, encrypted_res = qc.compile_and_run()
             print(f"Incorrect result = {encrypted_res}")
 
             plot_histogram(
-                encrypted_res, title="Incorrect matching state (after encryption)"
+                encrypted_res,
+                title="Incorrect matching state (after encryption)",
+                filename=f"pics/grover/encrypted_result_{iter}.png",
             )
-            plt.savefig(f"pics/grover1/encrypted_result_{iter}.png")
 
             corrected_res = {}
             for string, shots in encrypted_res.items():
                 decrypted_measure = qc.decrypt(key, string)
                 corrected_res[decrypted_measure] = shots
 
-            plot_histogram(corrected_res, title="Actual measurement (decrypted)")
-            plt.savefig(f"pics/grover1/decrypted_result_{iter}.png")
+            plot_histogram(
+                corrected_res,
+                title="Actual measurement (decrypted)",
+                filename=f"pics/grover/decrypted_result_{iter}.png",
+            )
             marked_state = extract_marked_states(os.path.join(qasm_folder_path, file))
             dfc_list.append(compute_dfc(original_res, encrypted_res, marked_state))
             tvd_list.append(compute_tvd(original_res, encrypted_res))
@@ -312,9 +326,7 @@ def execute_grover(
     print(f"Length of dfc_list: {len(dfc_list)}")
 
 
-def execute_bv(
-    tvd_list, dfc_list, solution_sets: list[list[str]] | None = None
-):
+def execute_bv(tvd_list, dfc_list, solution_sets: list[list[str]] | None = None):
     def generate_bv_circuits(solutions: list[list], folder_path: str):
         factor: str = ""
         bias: int = 0
@@ -753,24 +765,24 @@ if __name__ == "__main__":
     tvd_shor = []
     dfc_shor = []
     number_sets = [(15, 7)]
-    
+
     execute_shor(tvd_shor, dfc_shor, number_sets)
-    
+
     with open("tvd_shor.txt", "a") as file:
         file.write(f"{tvd_shor}\n")
 
     with open("dfc_shor.txt", "a") as file:
         file.write(f"{dfc_shor}\n")
-    
+
     print("Shor's algo done")
 
     print("Executing Grover's algo")
     tvd_grover = []
     dfc_grover = []
-    
-    for i in range(1, 101):
+
+    for i in range(1, 2):
         execute_grover(tvd_grover, dfc_grover, grover_solutions, iter=i)
-    
+
     with open("tvd_grover.txt", "a") as file:
         file.write(f"{tvd_grover}")
 
@@ -782,43 +794,42 @@ if __name__ == "__main__":
     print("Executing BV algo")
     bv_tvd = []
     bv_dfc = []
-    
+
     for i in range(1, 101):
         execute_bv(bv_tvd, bv_dfc)
-    
+
     with open("bv_tvd.txt", "a") as file:
         file.write(f"{bv_tvd}\n")
 
     with open("bv_dfc.txt", "a") as file:
         file.write(f"{bv_dfc}\n")
-    
+
     print("BV algo done")
 
     print("Executing QAOA algo")
     qaoa_tvd = []
     qaoa_dfc = []
-    
+
     for i in range(1, 101):
         execute_qaoa(qaoa_tvd, qaoa_dfc, num_qubits=5, reps=2, idx=i)
-    
+
     with open("tvd_qaoa.txt", "a") as file:
         file.write(f"{qaoa_tvd}\n")
 
     with open("dfc_qaoa.txt", "a") as file:
-        file.write(f"{qaoa_dfc}\n") 
-    
+        file.write(f"{qaoa_dfc}\n")
+
     print("QAOA done")
 
     print("Executing HHL algo")
     hhl_tvd = []
     hhl_dfc = []
     execute_hhl(hhl_tvd, hhl_dfc, generate_circuit=True)
-    
+
     with open("tvd_hhl.txt", "a") as file:
         file.write(f"{hhl_tvd}\n")
 
     with open("dfc_hhl.txt", "a") as file:
-        file.write(f"{hhl_dfc}\n") 
-    
+        file.write(f"{hhl_dfc}\n")
+
     print("HHL done")
-    
