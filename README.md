@@ -8,7 +8,7 @@ The technique is aimed at protecting quantum circuits from adversaries. Scheme w
 
 # Implementation details
 
-The code is written in Python, utilizing [Qiskit]() framework for coding up the quantum circuit. The technique was developed in Python 3.11.3, with Qiskit 1.3.2.
+The code is written in Python, utilizing [Qiskit](https://www.ibm.com/quantum/qiskit) framework for coding up the quantum circuit. The technique was developed in Python 3.11.3, with Qiskit 1.3.2.
 
 # Implementation setup
 
@@ -37,3 +37,22 @@ In order to try out this technique, you can follow the below steps in sequence.
    ```
 8. Run `main.py` file to start executing the program.
 
+# Program structure
+
+The codebase has been organized into various folders for easy understanding. In the project root, `main.py` is the entry point to the program. The file consists of the _QCircuit_ class, which can be considered as the wrapper class consisting of all the required methods, which includes reading from and writing to QASM files, encryption of QuantumCircuit objects, generation of encryption keys, decryption using the keys, computing TVD and DFC etc. The class allows quantum circuits to be given as inputs via OPENQASM files (both 2.0 and 3.0), as well as manually specifying the required arguments. 
+
+Each technique to be evaluated is written as a function named _execute\_{technique_name}_, such as `execute_shor`, `execute_grover` and so on. The functions are written on the logic that if the solution set is provided as input (such as solutions to be searched by Grover algorithm, or adjacency list needed for graph generation for QAOA algorithms), the QASM file corresponding to that solution is generated and stored in `qasm_files` folder. If the argument is not provided (meaning its default value of `None` will be used), it is implied that the QASM file needed is already available in `qasm_files` folder under the relevant folder name, without which the program would stop execution.
+
+Each algorithm used to test the encryption scheme is present in the `codes` folder, implemented as classes. Any algorithm that is to be tested could also be placed in the `codes` folder. 
+
+`metrics` folder contains the values of evaluation metrics (TVD and DFC) for the algorithms in `codes` folder.
+
+`pics` folder consists of measurement histograms of unobfuscated, encrypted and decrypted results. 
+
+`qasm_files` store the QASM files for the algorithms.
+
+`dequeue.py` is the custom implementation of doubly-ended queue (deque) data structure. The methods present in `deque` library of `collections` module have been renamed to mirror their functionalities. Deque is needed during decryption.
+
+# Corrections and/or updates to the code
+
+If you feel any missing component or find bug in the code, you can raise an issue under `Issues` tab of GitHub. All code improvements or updates are to be sent as pull requests to this repository.
