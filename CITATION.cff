@@ -1,0 +1,53 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: Quantum-Classical Obfuscation
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Amal
+    name-suffix: Raj
+    email: amal.raj@singaporetech.edu.sg
+    affiliation: Research Engineer
+    orcid: 'https://orcid.org/0009-0001-4025-1045'
+  - given-names: Vivek
+    name-suffix: Balachandran
+    email: vivek.b@singaporetech.edu.sg
+    affiliation: Associate Professor
+    orcid: 'https://orcid.org/0000-0003-4847-7150'
+identifiers:
+  - type: doi
+    value: 10.1145/3733817.3762698
+    description: ACM doi of the work
+  - type: other
+    value: 'arXiv:2505.13848'
+    description: ArXiv link of the paper
+repository-code: >-
+  https://github.com/vivekianity/quantum-classical-obfuscation
+abstract: >-
+  Quantum computing leverages quantum mechanics to achieve
+  computational advantages over classical hardware, but the
+  use of third-party quantum compilers in the Noisy
+  Intermediate-Scale Quantum (NISQ) era introduces risks of
+  intellectual property (IP) exposure. We address this by
+  proposing a novel obfuscation technique that protects
+  proprietary quantum circuits by inserting additional
+  quantum gates prior to compilation. These gates corrupt
+  the measurement outcomes, which are later corrected
+  through a lightweight classical post-processing step based
+  on the inserted gate structure. Unlike prior methods that
+  rely on complex quantum reversals, barriers, or
+  physical-to-virtual qubit mapping, our approach achieves
+  obfuscation using compiler-agnostic classical correction.
+  We evaluate the technique across five benchmark quantum
+  algorithms -- Shor's, QAOA, Bernstein-Vazirani, Grover's,
+  and HHL -- using IBM's Qiskit framework. The results
+  demonstrate high Total Variation Distance (above 0.5) and
+  consistently negative Degree of Functional Corruption
+  (DFC), confirming both statistical and functional
+  obfuscation. This shows that our method is a practical and
+  effective solution for the security of quantum circuit
+  designs in untrusted compilation flows.
